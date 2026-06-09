@@ -1,0 +1,22 @@
+<configuration>
+    <input>
+        <net-file value="map.net.xml"/>
+        <route-files value="routes.rou.xml"/>
+    </input>
+
+    <output>
+        <tripinfo-output value="tripinfo.xml"/>
+        <vehroute-output value="vehroute.xml"/>
+        <summary-output value="summary.xml"/>
+        <edgedata-output value="edges.xml"/>
+
+    </output>
+
+
+    <time>
+        <begin value="0"/>
+        <end value="3600"/>
+    </time>
+    <additional-files value="grids.taz.xml"/>
+
+</configuration>
