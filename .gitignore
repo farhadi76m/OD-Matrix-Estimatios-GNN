@@ -1,4 +1,16 @@
-__pycache__/ 
-*.pyc 
-*.log 
-*.h5 
+__pycache__/
+*.pyc
+*.log
+*.h5
+*.pkl
+*.pt
+*.json
+*.npz
+*.npy
+
+# generated datasets / model artifacts (regenerable from od_dataset.h5 + code)
+/data/
+/checkpoints/
+
+# large SUMO networks (inputs, managed outside git); keep the small TAZ file
+sumo/*.net.xml

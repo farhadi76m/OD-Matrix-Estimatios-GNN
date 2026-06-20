@@ -1,0 +1,48 @@
+# data.yaml — paths, dataset conversion, splits, feature handling
+# All paths are relative to the project root (/home/mehdi/Desktop/Model).
+
+paths:
+  source_hdf5:  "od_dataset.h5"          # existing forward-pipeline output (read-only source)
+  net_file:     "sumo/prune_tab.net.xml" # SUMO network
+  taz_file:     "sumo/tehran_taz.xml"    # 36-zone TAZ definition (edge->zone membership)
+
+  samples_dir:  "data/samples"           # per-sample .pkl files
+  manifest:     "data/index.json"        # browsable manifest (one row per sample)
+  graph_cache:  "data/graph.pkl"         # static line-graph (edge_index, static feats, zone map)
+  norm_stats:   "data/norm_stats.json"   # feature/target normalisation (fit on TRAIN only)
+
+# Which per-edge measurements become dynamic node features.
+# edge_timeLoss is all-zero (forward-pipeline attribute-name bug) and
+# edge_waitingTime is ~99.99% zero, so both are excluded.
+features:
+  dynamic: ["edge_flow", "edge_speed", "edge_density", "edge_traveltime"]
+  transform: "log1p_standardize"         # log1p then z-score, stats from train split
+
+# Static per-edge features parsed once from the SUMO network.
+static_features: ["length", "num_lanes", "speed_limit"]
+
+# Target (OD matrix) handling.
+target:
+  transform: "log1p"                     # model predicts log1p(trips); expm1 back for metrics
+  off_diagonal_only: true                # diagonal is structurally zero
+
+# Time-of-day regime labels: the 4 balanced log demand tiers (50..2000 trips)
+# are relabelled as regimes spanning free-flow -> congested. There is no clock
+# time in the source data; this is demand-magnitude stratification (see CLAUDE.md flag).
+demand_range: [50, 2000]
+n_tiers: 4
+tier_labels: ["night", "noon", "morning_peak", "evening_peak"]  # low -> high demand
+
+# Train/val/test split, stratified by tier so every split holds all 4 regimes.
+split:
+  fractions: {train: 0.70, val: 0.15, test: 0.15}
+  stratify_by: "tier"
+  seed: 42
+
+# Smoke-test subset: build/validate the whole pipeline on this many samples
+# first (stratified), then re-run on the full dataset by setting limit: null.
+subset:
+  limit: 1000          # set to null to use all 9997 samples
+
+n_zones: 36
+seed: 42

@@ -1,0 +1,41 @@
+# train.yaml — training + evaluation hyperparameters
+
+train:
+  epochs: 60               # smoke runs override with --epochs (e.g. 15)
+  batch_size: 16
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 1.0
+  scheduler: "cosine"      # cosine | none
+  warmup_epochs: 3
+
+  loss:
+    kind: "smooth_l1"      # Huber on log1p(OD) over off-diagonal cells
+    beta: 1.0
+    total_demand_weight: 0.1   # soft term matching predicted vs true total trips
+
+  early_stopping:
+    patience: 12           # epochs without val MAE improvement
+    metric: "val_mae"
+
+  num_workers: 0            # dataset is fully in RAM; workers only add fork/COW overhead
+  log_every: 100           # batches
+
+checkpoints:
+  dir: "checkpoints"
+  best_name: "best.pt"
+  last_name: "last.pt"
+
+eval:
+  geh:
+    enabled: true
+    # GEH needs link flows. SUMO is unavailable to re-simulate, so we fit a
+    # ridge linear assignment operator A (edges x OD-pairs) on the TRAIN split
+    # as a BPR-style linear-assignment surrogate, then GEH(A@od_pred, measured).
+    assignment: "linear_ridge"
+    ridge_alpha: 10.0
+    # convert window 'entered' counts (3300 s) to hourly volumes for GEH
+    collection_window_s: 3300
+    geh_good_threshold: 5.0    # fraction of links with GEH < 5 is reported
+
+seed: 42

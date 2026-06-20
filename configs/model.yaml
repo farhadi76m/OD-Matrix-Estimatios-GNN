@@ -1,0 +1,28 @@
+# model.yaml — GNN architecture for OD estimation
+# Pipeline: encode edge-node features -> message passing on the road line-graph
+#           -> pool nodes into 36 TAZ-zone vectors -> pairwise MLP -> 36x36 OD.
+
+model:
+  name: "ODLineGraphGNN"
+
+  zone_embed_dim: 16        # nn.Embedding for each node's TAZ membership
+
+  encoder:
+    hidden: 128             # node hidden width after input encoder
+
+  gnn:
+    conv: "sage"            # message-passing layer: sage | graph | gat
+    layers: 4
+    hidden: 128
+    dropout: 0.1
+    residual: true
+    add_reverse_edges: true # add upstream direction so context flows both ways
+
+  pooling:
+    methods: ["mean", "max", "sum"]   # concatenated per zone, then projected
+    zone_hidden: 128
+
+  readout:                  # pairwise OD head over the 36 zone vectors
+    pair_features: ["zi", "zj", "zi_zj", "abs_diff", "global"]
+    hidden: 256
+    dropout: 0.1
