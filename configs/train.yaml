@@ -10,13 +10,16 @@ train:
   warmup_epochs: 3
 
   loss:
-    kind: "smooth_l1"      # Huber on log1p(OD) over off-diagonal cells
+    kind: "smooth_l1"      # Huber on log1p targets
     beta: 1.0
-    total_demand_weight: 0.1   # soft term matching predicted vs true total trips
+    total_demand_weight: 0.1   # (cell head only) match predicted vs true total trips
+    # marginal head: weights for the production / attraction Huber terms
+    production_weight: 1.0
+    attraction_weight: 1.0
 
   early_stopping:
-    patience: 12           # epochs without val MAE improvement
-    metric: "val_mae"
+    patience: 12           # epochs without val-metric improvement
+    metric: "val_mae"      # cell head: OD MAE; marginal head: marginal MAE
 
   num_workers: 0            # dataset is fully in RAM; workers only add fork/COW overhead
   log_every: 100           # batches

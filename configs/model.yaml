@@ -3,7 +3,16 @@
 #           -> pool nodes into 36 TAZ-zone vectors -> pairwise MLP -> 36x36 OD.
 
 model:
-  name: "ODLineGraphGNN"
+  name: "ODMarginalGNN"
+  # head = "marginal": predict per-zone production+attraction, then rebuild the
+  #   OD with a Furness gravity prior (link counts can't identify cells, only
+  #   marginals — see src/od_reconstruct.py). "cell" = old direct-OD head.
+  head: "marginal"
+
+  # OD reconstruction from predicted marginals (used at eval/inference time)
+  furness:
+    beta: 1.0               # distance-decay in exp(-beta * grid_distance)
+    iters: 40
 
   zone_embed_dim: 16        # nn.Embedding for each node's TAZ membership
 

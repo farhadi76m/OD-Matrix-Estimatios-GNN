@@ -147,16 +147,26 @@ def main() -> None:
     true_od = s["od"].astype(np.float64)
     print(f"[infer] sample {pkl_path.name}  idx={meta['idx']}  regime={meta['tod']}  "
           f"true_total={int(true_od.sum())}")
-
+    
     # --- inference (brief GPU use; well under the watchdog) -----------------
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    head = ckpt["model_cfg"]["model"].get("head", "cell")
+    fcfg = ckpt["model_cfg"]["model"].get("furness", {"beta": 1.0, "iters": 40})
     model = build_model(ckpt["model_cfg"], ckpt["feature_dim"], ckpt["n_zones"]).to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
     data = build_single(graph, norm, s["x_dyn"]).to(device)
     with torch.no_grad():
-        pred_od = to_counts(model(Batch.from_data_list([data])))[0].cpu().numpy().astype(np.float64)
-
+        out = model(Batch.from_data_list([data]))
+    if head == "marginal":
+        from src.od_reconstruct import furness, zone_distance
+        ms = ckpt["marg_stats"]
+        prod = np.clip(out["production"][0].cpu().numpy() * np.array(ms["ps"]) + np.array(ms["pm"]), 0, None)
+        attr = np.clip(out["attraction"][0].cpu().numpy() * np.array(ms["as"]) + np.array(ms["am"]), 0, None)
+        pred_od = furness(prod, attr, np.exp(-fcfg["beta"] * zone_distance(zone_ids)), fcfg["iters"])
+    else:
+        pred_od = to_counts(out)[0].cpu().numpy().astype(np.float64)
+    
     # --- report -------------------------------------------------------------
     off = ~np.eye(len(zone_ids), dtype=bool)
     mae = np.abs(pred_od[off] - true_od[off]).mean()

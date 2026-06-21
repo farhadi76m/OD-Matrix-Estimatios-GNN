@@ -110,5 +110,64 @@ class ODLineGraphGNN(nn.Module):
         return od * off
 
 
-def build_model(mcfg: dict, feature_dim: int, n_zones: int) -> ODLineGraphGNN:
+class ODMarginalGNN(nn.Module):
+    """
+    Same line-graph backbone, but the head predicts per-zone PRODUCTION and
+    ATTRACTION (log1p space) instead of OD cells. Link counts identify the
+    marginals far better than the cells; the full OD is rebuilt afterwards with
+    a Furness/gravity prior (src/od_reconstruct.py). Returns a dict.
+    """
+
+    def __init__(self, feature_dim: int, n_zones: int, mcfg: dict):
+        super().__init__()
+        m = mcfg["model"]
+        self.n_zones = n_zones
+        self.add_reverse = m["gnn"]["add_reverse_edges"]
+        self.pool_methods = m["pooling"]["methods"]
+        self.dropout = m["gnn"]["dropout"]
+        self.residual = m["gnn"]["residual"]
+
+        zemb = m["zone_embed_dim"]
+        h = m["gnn"]["hidden"]
+        self.zone_embed = nn.Embedding(n_zones, zemb)
+        self.encoder = MLP([feature_dim + zemb, m["encoder"]["hidden"], h], self.dropout)
+        self.convs = nn.ModuleList(_make_conv(m["gnn"]["conv"], h) for _ in range(m["gnn"]["layers"]))
+        self.norms = nn.ModuleList(nn.LayerNorm(h) for _ in range(m["gnn"]["layers"]))
+
+        zh = m["pooling"]["zone_hidden"]
+        self.zone_proj = MLP([h * len(self.pool_methods), zh, zh], self.dropout)
+        self.zone_ln = nn.LayerNorm(zh)
+
+        # each zone sees its own vector + a global context (total-flow level)
+        rh = m["readout"]["hidden"]
+        self.prod_head = MLP([2 * zh, rh, 1], m["readout"]["dropout"])
+        self.attr_head = MLP([2 * zh, rh, 1], m["readout"]["dropout"])
+
+    def forward(self, data) -> dict:
+        x, edge_index, batch, zone = data.x, data.edge_index, data.batch, data.zone
+        B = int(batch.max().item()) + 1
+        Z = self.n_zones
+        if self.add_reverse:
+            edge_index = torch.cat([edge_index, edge_index.flip(0)], dim=1)
+
+        h = self.encoder(torch.cat([x, self.zone_embed(zone)], dim=1))
+        for conv, norm in zip(self.convs, self.norms):
+            out = F.dropout(F.relu(norm(conv(h, edge_index))), p=self.dropout, training=self.training)
+            h = h + out if self.residual else out
+
+        pool_idx = batch * Z + zone
+        pooled = [scatter(h, pool_idx, dim=0, dim_size=B * Z, reduce=r) for r in self.pool_methods]
+        zvec = self.zone_ln(self.zone_proj(torch.cat(pooled, dim=1)).view(B, Z, -1))  # [B,Z,zh]
+        g = zvec.mean(dim=1, keepdim=True).expand(B, Z, zvec.size(-1))                 # global context
+        feats = torch.cat([zvec, g], dim=-1)
+        return {
+            "production": self.prod_head(feats).squeeze(-1),   # [B, Z] log1p space
+            "attraction": self.attr_head(feats).squeeze(-1),
+        }
+
+
+def build_model(mcfg: dict, feature_dim: int, n_zones: int):
+    head = mcfg["model"].get("head", "cell")
+    if head == "marginal":
+        return ODMarginalGNN(feature_dim, n_zones, mcfg)
     return ODLineGraphGNN(feature_dim, n_zones, mcfg)
