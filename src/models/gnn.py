@@ -145,14 +145,18 @@ class ODMarginalGNN(nn.Module):
 
     def forward(self, data) -> dict:
         x, edge_index, batch, zone = data.x, data.edge_index, data.batch, data.zone
+        ew = getattr(data, "edge_weight", None)   # per-link turn counts (enriched)
         B = int(batch.max().item()) + 1
         Z = self.n_zones
         if self.add_reverse:
             edge_index = torch.cat([edge_index, edge_index.flip(0)], dim=1)
+            if ew is not None:
+                ew = torch.cat([ew, ew], dim=0)
 
         h = self.encoder(torch.cat([x, self.zone_embed(zone)], dim=1))
         for conv, norm in zip(self.convs, self.norms):
-            out = F.dropout(F.relu(norm(conv(h, edge_index))), p=self.dropout, training=self.training)
+            m = conv(h, edge_index, ew) if ew is not None else conv(h, edge_index)
+            out = F.dropout(F.relu(norm(m)), p=self.dropout, training=self.training)
             h = h + out if self.residual else out
 
         pool_idx = batch * Z + zone

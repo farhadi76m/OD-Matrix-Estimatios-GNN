@@ -26,7 +26,7 @@ import torch
 from torch_geometric.loader import DataLoader
 
 from src.config import get_device, load_config, resolve, set_seed
-from src.data.dataset import ODDataset
+from src.data.dataset import ODDataset, ODEnrichedDataset
 from src.data.graph import load_graph
 from src.metrics import geh, od_metrics, to_counts
 from src.models.gnn import build_model
@@ -91,7 +91,7 @@ def main() -> None:
     device = get_device()
     graph = load_graph(); zone_ids = graph["zone_ids"]; z = len(zone_ids)
 
-    test_ds = ODDataset("test")
+    test_ds = ODEnrichedDataset("test") if dcfg.get("enriched") else ODDataset("test")
     loader = DataLoader(test_ds, batch_size=tcfg["train"]["batch_size"], shuffle=False)
 
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
@@ -139,8 +139,10 @@ def main() -> None:
         print(f"  {name:13s} MAE={m['mae']:.4f}  RMSE={m['rmse']:.4f}  "
               f"totErr={m['total_flow_err']:.3f}  (n={len(idx)})")
 
-    # GEH via ridge linear-assignment surrogate
-    if tcfg["eval"]["geh"]["enabled"]:
+    # GEH via ridge linear-assignment surrogate (link-only dataset only; the
+    # surrogate is fit on the old per-sample flow pkls, which don't align with
+    # the enriched re-simulated split)
+    if tcfg["eval"]["geh"]["enabled"] and not dcfg.get("enriched"):
         manifest = json.loads(resolve(dcfg["paths"]["manifest"]).read_text())
         root = resolve(dcfg["paths"]["samples_dir"]).parent
         Xtr, Ytr = load_raw_split("train", manifest, root, z)

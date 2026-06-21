@@ -20,7 +20,9 @@ model:
     hidden: 128             # node hidden width after input encoder
 
   gnn:
-    conv: "sage"            # message-passing layer: sage | graph | gat
+    conv: "graph"           # message-passing layer: sage | graph | gat
+                            # 'graph' (GraphConv) consumes per-link edge weights
+                            # = turn counts in the enriched dataset
     layers: 4
     hidden: 128
     dropout: 0.1

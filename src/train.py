@@ -31,7 +31,7 @@ import torch
 import torch.nn.functional as F
 
 from src.config import get_device, load_config, resolve, set_seed
-from src.data.dataset import make_loaders
+from src.data.dataset import make_enriched_loaders, make_loaders
 from src.metrics import od_metrics, to_counts
 from src.models.gnn import build_model
 
@@ -141,7 +141,8 @@ def main() -> None:
     device = torch.device(args.device) if args.device else get_device()
     print(f"[train] head={head} device={device} epochs={args.epochs} batch={args.batch_size}", flush=True)
 
-    train_loader, val_loader, _, info = make_loaders(args.batch_size, tcfg["train"]["num_workers"])
+    loaders = make_enriched_loaders if cfg["data"].get("enriched") else make_loaders
+    train_loader, val_loader, _, info = loaders(args.batch_size, tcfg["train"]["num_workers"])
     z = info["n_zones"]
     model = build_model(mcfg, info["feature_dim"], z).to(device)
     print(f"[train] feature_dim={info['feature_dim']} n_nodes={info['n_nodes']} "

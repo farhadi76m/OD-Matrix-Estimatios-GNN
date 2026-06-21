@@ -103,3 +103,37 @@ def make_loaders(batch_size: int, num_workers: int = 0):
     mk = lambda ds, sh: DataLoader(ds, batch_size=batch_size, shuffle=sh,
                                    num_workers=num_workers)
     return mk(train, True), mk(val, False), mk(test, False), info
+
+
+class ODEnrichedDataset(torch.utils.data.Dataset):
+    """Enriched samples (data/pack_enr_*.pt): node features + per-link turn
+    counts as message-passing edge weights. Built by src/data/build_enriched.py."""
+
+    def __init__(self, split: str):
+        dcfg = load_yaml("data")
+        graph = load_graph()
+        self.n_zones, self.n_nodes = graph["n_zones"], graph["n_nodes"]
+        self.edge_index = torch.as_tensor(graph["edge_index"], dtype=torch.long)
+        self.zone = torch.as_tensor(graph["node_zone"], dtype=torch.long)
+
+        norm = json.loads(resolve("data/norm_enr.json").read_text())
+        xm = torch.tensor(norm["x_mean"]); xs = torch.tensor(norm["x_std"])
+        pack = torch.load(resolve(f"data/pack_enr_{split}.pt"), weights_only=False)
+        self.x = (torch.log1p(pack["x"].clamp(min=0)) - xm) / xs       # [n,N,9]
+        self.ew = torch.log1p(pack["ew"].clamp(min=0))                 # [n,n_links] >=0 weights
+        self.y = pack["y"]; self.meta = pack["meta"]
+        self.feature_dim = self.x.shape[2]
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, i):
+        return Data(x=self.x[i], edge_index=self.edge_index, edge_weight=self.ew[i],
+                    zone=self.zone, y=self.y[i], num_nodes=self.n_nodes)
+
+
+def make_enriched_loaders(batch_size: int, num_workers: int = 0):
+    train, val, test = (ODEnrichedDataset(s) for s in ("train", "val", "test"))
+    info = {"feature_dim": train.feature_dim, "n_zones": train.n_zones, "n_nodes": train.n_nodes}
+    mk = lambda ds, sh: DataLoader(ds, batch_size=batch_size, shuffle=sh, num_workers=num_workers)
+    return mk(train, True), mk(val, False), mk(test, False), info

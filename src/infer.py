@@ -70,6 +70,26 @@ def build_single(graph, norm, x_dyn_raw: np.ndarray) -> Data:
                 num_nodes=graph["n_nodes"])
 
 
+def build_enriched_single(graph, norm, resim) -> Data:
+    """Build the enriched Data (9 node feats + per-link turn weights) for one
+    re-simulated sample (mirrors src/data/build_enriched.py)."""
+    ei = graph["edge_index"]; src, dst = ei[0], ei[1]
+    static = graph["static"].astype(np.float32)
+    ts = resim["x_ts"]
+    aggr = np.stack([ts[:, :, 0].sum(0), ts[:, :, 1].mean(0),
+                     ts[:, :, 2].mean(0), ts[:, :, 3].mean(0)], 1)
+    turn = resim["turn"].astype(np.float32)
+    out_t = np.zeros(len(static), np.float32); np.add.at(out_t, src, turn)
+    in_t = np.zeros(len(static), np.float32); np.add.at(in_t, dst, turn)
+    x = np.concatenate([static, aggr, np.stack([out_t, in_t], 1)], 1)
+    xn = (np.log1p(np.clip(x, 0, None)) - np.array(norm["x_mean"])) / np.array(norm["x_std"])
+    return Data(x=torch.tensor(xn, dtype=torch.float32),
+                edge_index=torch.as_tensor(ei, dtype=torch.long),
+                edge_weight=torch.tensor(np.log1p(np.clip(turn, 0, None)), dtype=torch.float32),
+                zone=torch.as_tensor(graph["node_zone"], dtype=torch.long),
+                num_nodes=graph["n_nodes"])
+
+
 def visualize(pred, true, zone_ids, meta, out_png):
     import matplotlib
     matplotlib.use("Agg")
@@ -137,17 +157,34 @@ def main() -> None:
 
     graph = load_graph()
     zone_ids = graph["zone_ids"]
-    norm = json.loads(resolve(dcfg["paths"]["norm_stats"]).read_text())
+    enriched = dcfg.get("enriched")
 
-    pkl_path = pick_sample(dcfg, args)
-    with open(pkl_path, "rb") as f:
-        s = pickle.load(f)
-    meta = {"idx": s["idx"], "tod": s["tod"], "tier": s["tier"],
-            "total_demand": s["total_demand"]}
+    # --- load one sample + build the model input graph ----------------------
+    if enriched:
+        norm = json.loads(resolve("data/norm_enr.json").read_text())
+        rdir = resolve("data/resim")
+        if args.sample:
+            fp = Path(args.sample)
+        elif args.index is not None:
+            fp = rdir / f"resim_{args.index:06d}.pkl"
+        else:
+            files = sorted(rdir.glob("*.pkl"))
+            fp = files[np.random.default_rng(args.seed).integers(len(files))]
+        s = pickle.load(open(fp, "rb"))
+        tot = int(s["od"].sum())
+        breaks = np.exp(np.linspace(np.log(dcfg["demand_range"][0]),
+                                    np.log(dcfg["demand_range"][1]), dcfg["n_tiers"] + 1))
+        tier = int(np.clip(np.searchsorted(breaks, tot, "right") - 1, 0, dcfg["n_tiers"] - 1))
+        meta = {"idx": s["idx"], "tod": dcfg["tier_labels"][tier], "tier": tier, "total_demand": tot}
+        build_data = lambda: build_enriched_single(graph, norm, s)
+    else:
+        norm = json.loads(resolve(dcfg["paths"]["norm_stats"]).read_text())
+        s = pickle.load(open(pick_sample(dcfg, args), "rb"))
+        meta = {"idx": s["idx"], "tod": s["tod"], "tier": s["tier"], "total_demand": s["total_demand"]}
+        build_data = lambda: build_single(graph, norm, s["x_dyn"])
     true_od = s["od"].astype(np.float64)
-    print(f"[infer] sample {pkl_path.name}  idx={meta['idx']}  regime={meta['tod']}  "
-          f"true_total={int(true_od.sum())}")
-    
+    print(f"[infer] idx={meta['idx']}  regime={meta['tod']}  true_total={int(true_od.sum())}")
+
     # --- inference (brief GPU use; well under the watchdog) -----------------
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     head = ckpt["model_cfg"]["model"].get("head", "cell")
@@ -155,7 +192,7 @@ def main() -> None:
     model = build_model(ckpt["model_cfg"], ckpt["feature_dim"], ckpt["n_zones"]).to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
-    data = build_single(graph, norm, s["x_dyn"]).to(device)
+    data = build_data().to(device)
     with torch.no_grad():
         out = model(Batch.from_data_list([data]))
     if head == "marginal":

@@ -44,5 +44,11 @@ split:
 subset:
   limit: 1000          # set to null to use all 9997 samples
 
+# Use the turn-count-enriched dataset (data/pack_enr_*.pt from re-simulation +
+# src/data/build_enriched.py). Turn counts make the OD identifiable: marginal
+# corr ~0.89 vs ~0.5 from aggregate link counts. Set false for the old link-only
+# dataset (data/pack_*.pt).
+enriched: true
+
 n_zones: 36
 seed: 42

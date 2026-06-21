@@ -22,20 +22,24 @@ import numpy as np
 SUMO_HOME_DEFAULT = "/usr/share/sumo"
 
 
-def ensure_sumo_home() -> str | None:
-    """Prefer the eclipse-sumo pip package (1.27, matches the net) over the
-    system SUMO at /usr/share/sumo (1.18, which can't parse this net)."""
-    if os.environ.get("SUMO_HOME"):
-        return os.environ["SUMO_HOME"]
+def _wheel_home() -> str | None:
+    """SUMO_HOME of the eclipse-sumo pip wheel (1.27), if installed."""
     try:
         import sumo
-        sh = str(Path(sumo.__file__).resolve().parent)
-        if (Path(sh) / "bin").exists():
-            os.environ["SUMO_HOME"] = sh
-            return sh
+        sh = Path(sumo.__file__).resolve().parent
+        return str(sh) if (sh / "bin").exists() else None
     except Exception:
-        pass
-    if Path(SUMO_HOME_DEFAULT).exists():
+        return None
+
+
+def ensure_sumo_home() -> str | None:
+    """ALWAYS prefer the eclipse-sumo wheel (1.27, matches the net) over any
+    pre-set/system SUMO_HOME (e.g. /usr/share/sumo = 1.18, which can't parse
+    this net's vehicle classes)."""
+    wheel = _wheel_home()
+    if wheel:
+        os.environ["SUMO_HOME"] = wheel
+    elif not os.environ.get("SUMO_HOME") and Path(SUMO_HOME_DEFAULT).exists():
         os.environ["SUMO_HOME"] = SUMO_HOME_DEFAULT
     return os.environ.get("SUMO_HOME")
 
@@ -43,9 +47,12 @@ def ensure_sumo_home() -> str | None:
 def _bin(name: str) -> str | None:
     """Resolve a SUMO binary, preferring the version-matched eclipse-sumo wheel."""
     ensure_sumo_home()
+    wheel = _wheel_home()
+    if wheel and (Path(wheel) / "bin" / name).exists():
+        return str(Path(wheel) / "bin" / name)
     try:
         import sumolib
-        return sumolib.checkBinary(name)  # looks in SUMO_HOME/bin first
+        return sumolib.checkBinary(name)
     except Exception:
         return shutil.which(name)
 

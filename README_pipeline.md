@@ -1,7 +1,33 @@
 # OD Matrix Estimation — GNN Pipeline (Tehran, District 2)
 
-Inverse pipeline: **SUMO edge measurements → GNN → 36×36 OD matrix**.
+Inverse pipeline: **SUMO traffic measurements → GNN → 36×36 OD matrix**.
 The forward generator lives in `od_generator/` (unchanged).
+
+## TL;DR — what works (and why)
+Full OD-from-link-counts is **under-determined**; aggregate link counts only get
+OD cell-correlation ~0.06–0.44. The fix is **information + reframing**:
+1. Re-simulate to capture **junction turn counts** (`src/data/resimulate.py`) —
+   these constrain routing and make the marginals recoverable (corr ~0.9).
+2. GNN predicts **per-zone production/attraction** (standardized-MSE), using turn
+   counts as **edge weights** in message passing (`ODMarginalGNN`, GraphConv).
+3. Reconstruct the OD from predicted marginals via **doubly-constrained gravity /
+   Furness** (`src/od_reconstruct.py`).
+
+| approach | OD cell-corr | total-flow err | RMSE |
+|---|---|---|---|
+| original direct-cell GNN | 0.06 | 0.44 | 6.78 |
+| marginal GNN + gravity (link counts) | 0.435 | 0.49 | 6.78 |
+| **turn-count GNN + gravity** | **0.78** | **0.13** | **4.08** |
+
+Enriched run (after step 2 below):
+```bash
+python -m src.data.resimulate --start 0 --end 5000 --workers 8   # capture turn counts (chunk under 600s)
+python -m src.data.build_enriched                                # -> data/pack_enr_*.pt
+python -m src.train                                              # enriched=true in data.yaml
+python -m src.evaluate --save-preds
+python -m src.infer --index 839                                  # estimate OD + viz
+python -m src.plot_graph --index 839                             # plot the input graph
+```
 
 ## Environment
 ```bash
