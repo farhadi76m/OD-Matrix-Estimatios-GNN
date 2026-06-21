@@ -90,6 +90,44 @@ def build_enriched_single(graph, norm, resim) -> Data:
                 num_nodes=graph["n_nodes"])
 
 
+def plot_traffic(graph, dcfg, pred_od, zone_ids, true_turn, idx, out_dir, seed):
+    """Simulate the PREDICTED OD and plot its traffic (turn counts on the network)
+    next to the true traffic — a reliable static alternative to sumo-gui."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    from src import sumo_export as sx
+    from src.data.resimulate import _parse_turncounts
+    from src.plot_graph import node_positions
+
+    sdir = out_dir / f"sumo_{idx}"; sdir.mkdir(parents=True, exist_ok=True)
+    net = resolve(dcfg["paths"]["net_file"]); taz = resolve(dcfg["paths"]["taz_file"])
+    trips, routes = sdir / "trips.xml", sdir / "routes.xml"
+    sx.write_trips_xml(pred_od, zone_ids, trips, seed=seed)
+    ok, err = sx.run_duarouter(net, taz, trips, routes, seed=seed)
+    ei = graph["edge_index"]
+    eid_idx = {e: i for i, e in enumerate(graph["edge_ids"])}
+    link_idx = {(int(ei[0, k]), int(ei[1, k])): k for k in range(ei.shape[1])}
+    pred_turn = _parse_turncounts(routes, eid_idx, link_idx) if ok else np.zeros(ei.shape[1])
+
+    pos = node_positions(graph["edge_ids"], net)
+    segs = np.stack([pos[ei[0]], pos[ei[1]]], axis=1)
+    fig, ax = plt.subplots(1, 2, figsize=(21, 10))
+    for a, turn, ttl in [(ax[0], pred_turn, "PREDICTED OD → traffic"),
+                         (ax[1], true_turn, "TRUE traffic")]:
+        a.set_aspect("equal"); a.axis("off")
+        o = np.argsort(turn)
+        lc = LineCollection(segs[o], cmap="inferno", linewidths=0.3 + 2.5 * turn[o] / max(turn.max(), 1))
+        lc.set_array(np.log1p(turn[o])); a.add_collection(lc)
+        a.scatter(pos[:, 0], pos[:, 1], c="#888", s=2, linewidths=0, alpha=0.4)
+        a.set_title(f"{ttl}\n{int((turn > 0).sum())} active links, {int(turn.sum())} turns")
+    fig.suptitle(f"sample {idx}: predicted vs true traffic (junction turn counts)")
+    png = out_dir / f"traffic_{idx}.png"
+    fig.savefig(png, dpi=120, bbox_inches="tight"); plt.close(fig)
+    return png
+
+
 def visualize(pred, true, zone_ids, meta, out_png):
     import matplotlib
     matplotlib.use("Agg")
@@ -147,6 +185,8 @@ def main() -> None:
     ap.add_argument("--out", type=str, default="data/infer")
     ap.add_argument("--no-viz", action="store_true")
     ap.add_argument("--sumo-gui", action="store_true", help="launch sumo-gui on the predicted OD")
+    ap.add_argument("--plot-traffic", action="store_true",
+                    help="static plot of predicted vs true traffic (turn counts)")
     ap.add_argument("--seed", type=int, default=tcfg["seed"])
     args = ap.parse_args()
 
@@ -224,6 +264,15 @@ def main() -> None:
         png = out_dir / f"sample_{meta['idx']}.png"
         visualize(pred_od, true_od, zone_ids, meta, png)
         print(f"[infer] visualization -> {png}")
+
+    # --- static traffic plot: predicted OD's traffic vs true traffic --------
+    if args.plot_traffic:
+        true_turn = s["turn"].astype(float) if enriched and "turn" in s else None
+        if true_turn is None:
+            print("[infer] --plot-traffic needs an enriched (re-simulated) sample with turn counts")
+        else:
+            tp = plot_traffic(graph, dcfg, pred_od, zone_ids, true_turn, meta["idx"], out_dir, args.seed)
+            print(f"[infer] traffic plot -> {tp}")
 
     # --- optional sumo-gui on the PREDICTED OD ------------------------------
     if args.sumo_gui:

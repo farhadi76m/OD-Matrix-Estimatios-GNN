@@ -78,32 +78,55 @@ def main() -> None:
     ei = graph["edge_index"]
     segs = np.stack([pos[ei[0]], pos[ei[1]]], axis=1)  # [L, 2, 2]
 
-    pkl = pick_sample_file(dcfg, args)
-    with open(pkl, "rb") as f:
-        s = pickle.load(f)
-    feat = s["x_dyn"][:, FEATURES.index(args.feature)]
-    print(f"[plot] sample idx={s['idx']} regime={s['tod']} total={s['total_demand']} "
-          f"| nodes={graph['n_nodes']} links={ei.shape[1]} | active edges (flow>0)={int((s['x_dyn'][:,0]>0).sum())}")
+    enriched = dcfg.get("enriched")
+    if enriched:
+        rdir = resolve("data/resim")
+        if args.sample:
+            fp = Path(args.sample)
+        elif args.index is not None:
+            fp = rdir / f"resim_{args.index:06d}.pkl"
+        else:
+            files = sorted(rdir.glob("*.pkl")); fp = files[np.random.default_rng(args.seed).integers(len(files))]
+        s = pickle.load(open(fp, "rb"))
+        feat = s["x_ts"][:, :, 0].sum(0)              # aggregate node flow
+        turn = s["turn"].astype(float)                # [n_links] turn counts on edge_index
+        idx, tot = s["idx"], int(s["od"].sum())
+    else:
+        s = pickle.load(open(pick_sample_file(dcfg, args), "rb"))
+        feat = s["x_dyn"][:, FEATURES.index(args.feature)]; turn = None
+        idx, tot = s["idx"], s["total_demand"]
+    print(f"[plot] idx={idx} total={tot} | nodes={graph['n_nodes']} links={ei.shape[1]} | "
+          f"active edges(flow>0)={int((feat>0).sum())}"
+          + (f" | active links(turn>0)={int((turn>0).sum())}" if turn is not None else ""))
 
     fig, ax = plt.subplots(1, 2, figsize=(21, 10))
     for a in ax:
-        a.add_collection(LineCollection(segs, colors="#cfcfcf", linewidths=0.3, alpha=0.5))
         a.set_aspect("equal"); a.axis("off")
 
+    ax[0].add_collection(LineCollection(segs, colors="#cfcfcf", linewidths=0.3, alpha=0.5))
     ax[0].scatter(pos[:, 0], pos[:, 1], c=graph["node_zone"], cmap="tab20", s=7, linewidths=0)
-    ax[0].set_title(f"input graph: {graph['n_nodes']} road-edge nodes, {ei.shape[1]} links\n"
+    ax[0].set_title(f"INPUT GRAPH: {graph['n_nodes']} road-edge nodes, {ei.shape[1]} links\n"
                     "colored by TAZ zone (the 36 pooling groups)")
 
-    # dim the (many) zero-feature edges; highlight the active ones sized by value
-    active = feat > 0
-    n_act = int(active.sum())
-    ax[1].scatter(pos[~active, 0], pos[~active, 1], c="#e3e3e3", s=4, linewidths=0)
-    sc = ax[1].scatter(pos[active, 0], pos[active, 1], c=np.log1p(feat[active]), cmap="plasma",
-                       s=12 + 60 * feat[active] / max(feat.max(), 1e-6), linewidths=0)
-    ax[1].set_title(f"same graph, nodes colored/sized by {args.feature}\n"
-                    f"sample idx={s['idx']} ({s['tod']}, total={s['total_demand']} trips) — "
-                    f"only {n_act}/{graph['n_nodes']} edges carry signal")
-    fig.colorbar(sc, ax=ax[1], fraction=0.04, label=f"log1p({args.feature})")
+    if turn is not None:
+        # the actual model input: edges weighted/colored by TURN COUNTS (edge_weight)
+        order = np.argsort(turn)
+        lc = LineCollection(segs[order], cmap="inferno",
+                            linewidths=0.3 + 2.5 * turn[order] / max(turn.max(), 1))
+        lc.set_array(np.log1p(turn[order]))
+        ax[1].add_collection(lc)
+        fig.colorbar(lc, ax=ax[1], fraction=0.04, label="log1p(turn count)")
+        ax[1].scatter(pos[:, 0], pos[:, 1], c="#888", s=3, linewidths=0, alpha=0.5)
+        ax[1].set_title(f"MODEL INPUT (data.edge_weight): per-link TURN COUNTS\n"
+                        f"idx={idx}, total={tot} trips — {int((turn>0).sum())}/{ei.shape[1]} links active")
+    else:
+        active = feat > 0
+        ax[1].add_collection(LineCollection(segs, colors="#cfcfcf", linewidths=0.3, alpha=0.5))
+        ax[1].scatter(pos[~active, 0], pos[~active, 1], c="#e3e3e3", s=4, linewidths=0)
+        sc = ax[1].scatter(pos[active, 0], pos[active, 1], c=np.log1p(feat[active]), cmap="plasma",
+                           s=12 + 60 * feat[active] / max(feat.max(), 1e-6), linewidths=0)
+        fig.colorbar(sc, ax=ax[1], fraction=0.04, label=f"log1p({args.feature})")
+        ax[1].set_title(f"nodes by {args.feature} (idx={idx}, total={tot})")
 
     fig.tight_layout()
     out = resolve(args.out); out.mkdir(parents=True, exist_ok=True)
