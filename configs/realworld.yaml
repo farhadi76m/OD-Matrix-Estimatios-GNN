@@ -1,0 +1,88 @@
+# realworld.yaml — real-data (Neshan travel-time) OD calibration for SUMO.
+#
+# Goal: turn observed per-segment travel times into a calibrated OD that, when
+# re-simulated in SUMO, reproduces the observed traffic — then editable for
+# new-road / network-change what-ifs. The learned model is only a warm-start;
+# the SUMO-in-the-loop SPSA loop (calibrate.py) does the actual matching.
+#
+# All paths are relative to the project root.
+
+# ── Network / zone assets (shared with the synthetic pipeline) ───────────────
+paths:
+  net_file:  "sumo/prune_tab.net.xml"     # SUMO network (OSM-derived)
+  taz_file:  "sumo/tehran_taz.xml"        # 36-zone TAZ definition
+  graph_cache: "data/graph.pkl"           # cached line-graph (edge_ids order)
+
+  # Stage B outputs (the assembled real observation)
+  neshan_raw:  "data/neshan/neshan_export.csv"   # user-provided export (CSV or GeoJSON)
+  observation: "data/neshan_obs.pkl"             # per-edge observed traveltime + coverage mask
+  observation_meta: "data/neshan_obs.json"
+
+# ── Stage A: travel-time identifiability diagnostic ──────────────────────────
+# Uses the enriched packs (data/pack_enr_*.pt) we already built. Channel order:
+# [length, lanes, speed_limit, flow, speed, density, traveltime, out_turn, in_turn]
+diagnostic:
+  # signal name -> which dynamic channels a ridge model is allowed to see.
+  # "traveltime" is the Neshan-observable signal; the rest are for context.
+  signals:
+    static_only: []
+    traveltime:  ["traveltime"]
+    speed:       ["speed"]
+    flow:        ["flow"]
+    turn_node:   ["out_turn", "in_turn"]
+    all_dynamic: ["flow", "speed", "density", "traveltime", "out_turn", "in_turn"]
+  ridge_alphas: [1.0, 10.0, 100.0, 1000.0]   # picked on val by marginal MAE
+  report: "data/diag_traveltime.json"
+
+# ── Coverage mask (which edges a probe source like Neshan actually observes) ──
+# "named": edges that carry a street name in the SUMO net (arterials) — a
+# realistic stand-in until the real Neshan match is available (Stage B writes
+# the true mask into the observation file).
+coverage:
+  mode: "named"        # named | all | from_observation
+  min_name_len: 1
+
+# ── Furness / gravity reconstruction (marginals -> full OD) ──────────────────
+furness:
+  betas: [0.3, 0.5, 0.7, 1.0, 1.5, 2.0]   # swept on TRAIN using TRUE marginals
+  iters: 40
+
+# ── Stage C: warm-start marginal predictor ──────────────────────────────────
+warmstart:
+  model: "ridge"        # ridge | gnn  (gnn reuses src/train.py infra)
+  out: "data/od_warmstart.pkl"
+
+# ── Stage D: SPSA SUMO-in-the-loop calibration ───────────────────────────────
+calibrate:
+  param: "marginal_multipliers"   # optimise 36 production x 36 attraction scales
+  beta: 0.3                        # gravity deterrence (best from Stage A reconstruction sweep)
+  # total-demand search band, as multipliers of the warm-start total. Kept tight:
+  # travel time on a sparse edge set poorly constrains the total, and very high
+  # demand drives SUMO into gridlock+teleport artifacts that spuriously fit.
+  total_search: {lo: 0.4, hi: 2.5, steps: 9}
+  spsa:
+    a: 0.30          # step-size numerator (Spall's a)
+    c: 0.10          # perturbation size
+    A: 5.0           # stability constant
+    alpha: 0.602     # step-size decay
+    gamma: 0.101     # perturbation decay
+    max_iters: 60    # SPSA iterations (2 SUMO sims each); resumable
+    seed: 42
+  objective:
+    # subtract a ONE-TIME global sim-vs-probe speed offset (log space). Set true
+    # for REAL Neshan; the demo is self-consistent so leave false (bias=0). It is
+    # estimated once, not per-eval, so the demand-magnitude signal is preserved.
+    remove_global_bias: false
+    reg_warmstart: 0.05      # L2 pull of shape multipliers toward the warm-start
+  sim_seed: 7                # SUMO seed for every candidate (paired comparisons)
+  checkpoint: "data/calib_state.pkl"
+  out_od: "data/od_calibrated.pkl"
+
+# ── Stage E: validation + what-if ────────────────────────────────────────────
+validate:
+  report: "data/calib_report.json"
+  out_dir: "data/realworld"
+  bpr: {alpha: 0.15, beta: 4.0, capacity_per_lane: 1800}  # travel-time -> implied flow (GEH)
+
+n_zones: 36
+seed: 42
