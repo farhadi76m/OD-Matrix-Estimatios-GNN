@@ -5,6 +5,36 @@ zones** (down from 36), reusing the proven marginal-GNN + turn-count recipe.
 Everything lives in `src/zones9/` and `configs/zones9.yaml`; the 36-zone pipeline
 is untouched.
 
+## Run it end-to-end (step by step)
+```bash
+conda activate traffic && cd /home/mehdi/Desktop/Model
+export SUMO_HOME=$(python -c "import sumo,os;print(os.path.dirname(sumo.__file__))")
+
+# 1. TAZ — create the 9-zone grid (width 3000)
+python "$SUMO_HOME/tools/district/gridDistricts.py" \
+       -n sumo/prune_tab.net.xml -o sumo/taz_9.xml -w 3000
+python -m src.zones9.graph                 # build/cache the 9-zone line-graph
+
+# 2. OD dataset — sample ODs, simulate in SUMO, capture edge data + turn counts
+python -m src.zones9.generate              # ~2000 samples (parallel, resumable)
+python -m src.zones9.build_packs           # -> data9/pack_{train,val,test}.pt
+
+# 3. TRAIN  (GPU in safe ~25s chunks; repeat until it prints "training complete")
+python -m src.zones9.train_eval --mode train --device cuda --max-seconds 25
+# 4. VALIDATE  (test metrics + GEH on re-simulated link flows)
+python -m src.zones9.train_eval --mode eval  --device cpu
+
+# 5. INFERENCE  (one sample: predicted vs true OD)
+python -m src.zones9.infer --random
+python -m src.zones9.infer --regime morning_peak     # or --index <idx>
+
+# 6. VISUALIZE  (all figures -> data9/viz/)
+python -m src.zones9.visualize
+```
+On a machine without the ~45 s process watchdog you can simply run
+`python -m src.zones9.train_eval --mode all --device cpu` for steps 3+4 in one go.
+The sections below explain each step.
+
 ## Step 1 — TAZ (9 zones)
 SUMO's `gridDistricts.py` partitions the network into a grid of TAZ cells.
 Grid-width controls the count: **1000 → 36 zones** (the original), and here:
@@ -62,7 +92,16 @@ anyway). The **GEH 2.15 / 94 %** is the practically important number: when the
 predicted OD is re-simulated, the resulting link flows match the true traffic
 very closely (GEH < 5 is the standard "good match" threshold).
 
-## Step 4 — visualizations (`docs/zones9/`, full set in `data9/viz/`)
+## Step 5 — inference (one sample)
+Run the trained model on a single test sample: predict its marginals, rebuild the
+9×9 OD, print the top OD pairs + MAE + cell-corr, and save a predicted-vs-true
+figure to `data9/infer/sample_<idx>.png`.
+```bash
+python -m src.zones9.infer --random
+python -m src.zones9.infer --regime morning_peak     # or --index <idx>
+```
+
+## Step 6 — visualizations (`docs/zones9/`, full set in `data9/viz/`)
 - `zones_map.png` — the 9 TAZ zones on the road network.
 - `training_curve.png` — loss + validation marginal correlations (→ ~0.88).
 - `marginals_scatter.png` — predicted vs true production/attraction.
@@ -79,6 +118,7 @@ src/zones9/graph.py          9-zone line-graph (net + TAZ)
 src/zones9/generate.py       OD sampling + SUMO sim + turn counts -> pkl + manifest
 src/zones9/build_packs.py    per-sample pkls -> train/val/test packs
 src/zones9/train_eval.py     marginal GNN train (resumable) + evaluate (+GEH)
+src/zones9/infer.py          single-sample inference (predicted vs true OD)
 src/zones9/visualize.py      the 6 figures
 data9/                       generated dataset, packs, checkpoints, viz (git-ignored)
 ```
