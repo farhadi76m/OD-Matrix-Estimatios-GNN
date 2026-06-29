@@ -62,7 +62,11 @@ def _parse_edgedata(xml_path, eid_to_idx, n_edges):
     flow = np.zeros(n_edges); den = np.zeros(n_edges)
     if not Path(xml_path).exists():
         return tt, spd, flow, den
-    for interval in ET.parse(xml_path).getroot().findall("interval"):
+    try:
+        root = ET.parse(xml_path).getroot()
+    except ET.ParseError:                       # truncated edgeData (sim killed mid-write)
+        return tt, spd, flow, den
+    for interval in root.findall("interval"):
         for e in interval.findall("edge"):
             i = eid_to_idx.get(e.get("id", ""))
             if i is None:

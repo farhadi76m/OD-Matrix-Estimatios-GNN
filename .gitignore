@@ -14,3 +14,4 @@ __pycache__/
 
 # large SUMO networks (inputs, managed outside git); keep the small TAZ file
 sumo/*.net.xml
+/data9/

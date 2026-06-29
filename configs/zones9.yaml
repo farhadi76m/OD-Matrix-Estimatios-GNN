@@ -1,0 +1,45 @@
+# zones9.yaml — 9-zone OD study (grid width 3000; see README_zones9.md).
+# A compact, self-contained re-run of the forward+inverse pipeline at 9 zones,
+# reusing the proven marginal-GNN + turn-count recipe. Architecture comes from
+# configs/model.yaml (head=marginal); only zone count and scale differ here.
+
+paths:
+  net_file: "sumo/prune_tab.net.xml"
+  taz_file: "sumo/taz_9.xml"          # 9 zones, gridDistricts -w 3000
+  data_dir: "data9"
+  graph_cache: "data9/graph9.pkl"
+  samples_dir: "data9/samples"
+  manifest: "data9/index.json"
+  checkpoint: "data9/best.pt"
+  metrics: "data9/metrics.json"
+  predictions: "data9/test_predictions.npz"
+
+# ── dataset ──────────────────────────────────────────────────────────────────
+n_samples: 2000                 # OD matrices to simulate (9-zone problem is small)
+demand_range: [50, 2000]
+n_tiers: 4
+tier_labels: ["night", "noon", "morning_peak", "evening_peak"]
+od_mix: {gravity: 0.40, dirichlet: 0.35, sparse: 0.25}
+master_seed: 42
+sim_seed: 7
+n_workers: 7
+
+split:
+  fractions: {train: 0.70, val: 0.15, test: 0.15}
+  seed: 123
+
+# ── reconstruction + training ────────────────────────────────────────────────
+furness:
+  beta: 1.0
+  iters: 40
+  betas: [0.3, 0.5, 0.7, 1.0, 1.5, 2.0]   # swept on TRUE marginals for the ceiling
+
+train:
+  epochs: 80
+  batch_size: 32
+  lr: 0.002
+  weight_decay: 0.0001
+  warmup_epochs: 5
+  grad_clip: 2.0
+  patience: 15
+  seed: 0
