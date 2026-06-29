@@ -7,8 +7,8 @@ from pathlib import Path
 
 CFG = {
     # ── Network files ────────────────────────────────────────────────────────
-    "sumo_net":   "/home/mci/mehdi/Traffic/sumo/prune_tab.net.xml",      # SUMO network (from netconvert)
-    "taz_file":   "/home/mci/mehdi/Traffic/sumo/tehran_taz.xml",      # 36-zone TAZ definition
+    "sumo_net":   "~/Desktop/Urban Traffic/sumo/prune_tab.net.xml",      # SUMO network (from netconvert)
+    "taz_file":   "~/Desktop/Urban Traffic/sumo/tehran_taz.xml",      # 36-zone TAZ definition
 
     # ── Dataset scale ────────────────────────────────────────────────────────
     "n_zones":    36,                    # Must match TAZ file (6×6 grid)
