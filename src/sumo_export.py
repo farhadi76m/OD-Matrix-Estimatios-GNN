@@ -76,21 +76,25 @@ def write_trips_xml(od: np.ndarray, zone_ids: List[str], path,
     od = np.clip(od, 0, None)
     odi = (np.floor(od) + (rng.random(od.shape) < (od - np.floor(od)))).astype(int)
     np.fill_diagonal(odi, 0)
-    root = ET.Element("routes")
-    tid = 0
     n = len(zone_ids)
+
+    # collect every trip then sort GLOBALLY by departure time. SUMO loads route
+    # files as a stream and silently drops any vehicle that departs earlier than
+    # the previous one ("Route file should be sorted ... ignoring"); writing
+    # per-OD-pair would interleave departures and lose most of the demand.
+    trips = []
     for i in range(n):
         for j in range(n):
-            c = int(odi[i, j])
-            if c <= 0:
-                continue
-            for dep in sorted(rng.uniform(begin, end, c)):
-                ET.SubElement(root, "trip", {
-                    "id": f"{prefix}{tid}", "depart": f"{dep:.2f}",
-                    "fromTaz": zone_ids[i], "toTaz": zone_ids[j]})
-                tid += 1
+            for dep in rng.uniform(begin, end, int(odi[i, j])):
+                trips.append((float(dep), zone_ids[i], zone_ids[j]))
+    trips.sort(key=lambda t: t[0])
+
+    root = ET.Element("routes")
+    for tid, (dep, frm, to) in enumerate(trips):
+        ET.SubElement(root, "trip", {
+            "id": f"{prefix}{tid}", "depart": f"{dep:.2f}", "fromTaz": frm, "toTaz": to})
     _write_xml(root, path)
-    return tid
+    return len(trips)
 
 
 def write_sumocfg(path, net, routes, begin: int = 0, end: int = 3600, step: float = 1.0) -> None:
