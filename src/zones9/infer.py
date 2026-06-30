@@ -38,6 +38,8 @@ def pick(cfg, args):
     rows = [r for r in manifest["samples"] if r["split"] == "test"]
     if args.regime:
         rows = [r for r in rows if r["tod"] == args.regime] or rows
+    if args.max_trips:                       # busiest sample (most trips)
+        return max(rows, key=lambda r: r["total_demand"])
     if args.index is not None and any(r["idx"] == args.index for r in rows):
         return next(r for r in rows if r["idx"] == args.index)
     return rows[np.random.default_rng(args.seed).integers(len(rows))]
@@ -49,7 +51,13 @@ def main():
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--index", type=int)
     g.add_argument("--random", action="store_true")
+    g.add_argument("--max-trips", action="store_true", help="pick the busiest test sample")
     ap.add_argument("--regime", type=str, help="night|noon|morning_peak|evening_peak")
+    ap.add_argument("--sumo-gui", action="store_true", help="animate the OD in sumo-gui")
+    ap.add_argument("--use-true", action="store_true",
+                    help="visualize the TRUE OD instead of the predicted one")
+    ap.add_argument("--scale", type=float, default=1.0,
+                    help="multiply the OD before simulating (denser traffic in the GUI)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")
     args = ap.parse_args()
@@ -102,6 +110,25 @@ def main():
          "od_pred": np.rint(pred_od).astype(int).tolist()}, indent=2))
     _plot(pred_od, true_od, zone_ids, s, mae, out / f"sample_{s['idx']}.png")
     print(f"[infer9] -> {out}/sample_{s['idx']}.png")
+
+    # --- optional sumo-gui animation of the OD (predicted or true) -----------
+    if args.sumo_gui:
+        from src import sumo_export as sx
+        od_show = (true_od if args.use_true else pred_od) * args.scale
+        which = "TRUE" if args.use_true else "PRED"
+        sdir = out / f"sumo_{s['idx']}"; sdir.mkdir(parents=True, exist_ok=True)
+        net = resolve(cfg["paths"]["net_file"]); taz = resolve(cfg["paths"]["taz_file"])
+        trips, routes, scfg = sdir / "trips.xml", sdir / "routes.xml", sdir / "sim.sumocfg"
+        n = sx.write_trips_xml(od_show, zone_ids, trips, seed=args.seed)
+        print(f"[infer9] {which} OD x{args.scale:g}: wrote {n} trips -> {trips}")
+        ok, err = sx.run_duarouter(net, taz, trips, routes, seed=args.seed)
+        if not ok:
+            print(f"[infer9] duarouter failed: {err}\n        check files in {sdir}")
+        else:
+            sx.write_sumocfg(scfg, net, routes)
+            launched, info = sx.launch_sumo_gui(scfg)
+            print(f"[infer9] sumo-gui {'launched (press Play ▶)' if launched else 'NOT found'}.")
+            print(f"[infer9] open it yourself: sumo-gui -c {scfg} --start --delay 80")
 
 
 def _plot(pred, true, zone_ids, s, mae, png):
