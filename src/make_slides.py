@@ -183,6 +183,17 @@ def image(slide, path, l, t, w=None, h=None):
     slide.shapes.add_picture(str(path), Inches(l), Inches(t), **kw)
 
 
+def centered_image(slide, path, aspect, top, max_h, max_w=12.0):
+    """Place an image horizontally centered on the 13.333in slide, fit to a
+    max width/height box. Returns the image bottom (in inches) for captions."""
+    w = max_w; h = w / aspect
+    if h > max_h:
+        h = max_h; w = h * aspect
+    left = (13.333 - w) / 2
+    image(slide, path, left, top, w=w)
+    return top + h
+
+
 def table(slide, rows, l, t, w, h, col_w=None, header=True, size=12):
     from pptx.util import Inches, Pt
     nr, nc = len(rows), len(rows[0])
@@ -307,7 +318,29 @@ def build(m36, m9, p36, p9):
     s = blank(prs); titlebar(s, prs, "Example OD matrix (busiest evening peak)")
     image(s, ASSETS / "cmp_od_example.png", 3.0, 1.2, h=6.0)
 
-    # 10 — interpretation
+    # 10–15 — 9-zone study in detail (data9 visualizations)
+    Z9 = resolve("docs/zones9")
+    nine = [
+        ("zones_map.png", 1.33, "The 9 TAZ zones",
+         "gridDistricts width 3000. Note the imbalance — central 1_1 and 2_1 dominate "
+         "while 3_2 / 2_0 / 0_0 are tiny edge cells: the source of the noisier 9-zone marginals."),
+        ("training_curve.png", 2.89, "Training convergence",
+         "Per-zone standardized marginal-MSE loss; early-stopped on the validation split."),
+        ("marginals_scatter.png", 2.18, "Marginal recovery (the GNN's actual target)",
+         "Per-zone production & attraction, predicted vs true — corr 0.82 / 0.80."),
+        ("cell_scatter.png", 1.08, "Full 9×9 OD per-cell accuracy",
+         "Pooled predicted vs true off-diagonal cells after gravity reconstruction — cell-corr 0.66."),
+        ("od_examples.png", 1.89, "Example OD matrices by regime",
+         "Predicted vs true OD across night / noon / morning-peak / evening-peak — gravity-smoothed, right structure."),
+        ("metrics_summary.png", 1.70, "OD cell-corr by regime vs the ceiling",
+         "Peaks are strong (~0.74–0.79); night is the weak spot (0.17, sparse demand). Ceiling = 0.88."),
+    ]
+    for fn, asp, title, cap in nine:
+        s = blank(prs); titlebar(s, prs, f"9-zone study — {title}")
+        bot = centered_image(s, Z9 / fn, asp, 1.25, max_h=5.4, max_w=11.5)
+        textbox(s, cap, 0.8, min(bot + 0.15, 6.7), 11.7, 0.7, size=13, color=GREY, align="center")
+
+    # 16 — interpretation
     s = blank(prs); titlebar(s, prs, "Why the numbers differ")
     bullets(s, [
         ("More cells ≠ harder here: 36 zones had 1.75× the training data, so its marginal "
