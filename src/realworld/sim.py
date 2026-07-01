@@ -79,11 +79,12 @@ def _parse_edgedata(xml_path, eid_to_idx, n_edges):
 
 
 def simulate_od(od: np.ndarray, zone_ids, edge_ids, net, taz, workdir,
-                seed: int = 7, timeout: int = 360, extra_addl=None) -> dict:
+                seed: int = 7, timeout: int = 360, extra_addl=None, meso: bool = False) -> dict:
     """Simulate one OD; return {ok, n_trips, traveltime, speed, flow, density}[N].
 
     extra_addl: optional list of additional-file paths (e.g. a rerouter that
-    closes edges) layered on top of the edgeData collector — used by what-if."""
+    closes edges) layered on top of the edgeData collector — used by what-if.
+    meso: run the fast mesoscopic model (queue-based) — much faster at high demand."""
     ensure_sumo_home()
     work = Path(workdir); work.mkdir(parents=True, exist_ok=True)
     trips, routes = work / "trips.xml", work / "routes.xml"
@@ -105,9 +106,10 @@ def simulate_od(od: np.ndarray, zone_ids, edge_ids, net, taz, workdir,
     _write_additional(addl, edge_out)
     _write_cfg(cfg, net, routes, [addl] + list(extra_addl or []), seed)
     sumo = _bin("sumo")
+    cmd = [sumo, "-c", str(cfg)] + (["--mesosim", "--meso-junction-control", "true"] if meso else [])
     try:
         with open(sumo_log, "w") as lf:
-            r = subprocess.run([sumo, "-c", str(cfg)], stdout=lf, stderr=lf, timeout=timeout)
+            r = subprocess.run(cmd, stdout=lf, stderr=lf, timeout=timeout)
     except subprocess.TimeoutExpired:
         blank["err"] = f"sumo TIMEOUT {timeout}s"; return blank
     if r.returncode != 0:

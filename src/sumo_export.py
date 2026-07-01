@@ -125,11 +125,14 @@ def run_duarouter(net, taz, trips, routes, seed: int = 0) -> tuple[bool, str]:
     return r.returncode == 0 and Path(routes).exists(), (r.stderr or "")[:600]
 
 
-def launch_sumo_gui(cfg, delay: int = 80, start: bool = True, block: bool = False) -> tuple[bool, str]:
+def launch_sumo_gui(cfg, delay: int = 80, start: bool = True, block: bool = False,
+                    meso: bool = False) -> tuple[bool, str]:
     gui = _bin("sumo-gui")
     if not gui:
         return False, "sumo-gui not found"
     cmd = [gui, "-c", str(cfg), "--delay", str(delay)]
+    if meso:
+        cmd += ["--mesosim", "--meso-junction-control", "true"]
     if start:
         cmd.append("--start")
     if block:
