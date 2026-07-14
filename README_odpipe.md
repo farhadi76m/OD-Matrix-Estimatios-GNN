@@ -10,43 +10,39 @@ TAZ (gridDistricts) → line-graph → OD dataset (SUMO, mesoscopic) → margina
       → gravity/Furness OD → evaluate → inference (+sumo-gui) → visualize
 ```
 
-## Run it step by step
+## Run it — four commands
 ```bash
 conda activate traffic && cd /home/mehdi/Desktop/Model
 
-# 1. TAZ — generate the zones at the configured grid width (2000 m → 13 zones)
-python -m src.odpipe.taz                 # writes sumo/taz_od.xml  (--width to override)
-python -m src.odpipe.graph               # cache the road line-graph
+# 1. DATASET  — TAZ → graph → simulate OD samples (.pkl) → packs.  All in one.
+python -m src.odpipe.dataset
+#   --samples 300        override n_samples          --width 3000   override TAZ grid
+#   --start 0 --end 500  simulate a chunk (resumable, safe to re-run)
+#   --packs-only         just rebuild manifest + packs
 
-# 2. OD dataset — demand 2000–30000 trips/hr, simulated MESOSCOPIC (fast) with turn counts
-python -m src.odpipe.generate --workers 8            # all n_samples (resumable, chunkable)
-#   or in chunks:  --start 0 --end 500   /   --start 500 --end 1000  ...
-python -m src.odpipe.build_packs                     # → data_od/pack_*.pt + norm.json
+# 2. TRAIN + EVAL
+python -m src.odpipe.train
+#   --mode train --max-seconds 25   resumable chunks (if long processes get killed)
+#   --mode eval                     metrics only
 
-# 3. TRAIN / EVAL
-python -m src.odpipe.train_eval --mode train --device cuda --max-seconds 25   # resumable chunks
-python -m src.odpipe.train_eval --mode eval  --device cpu                     # metrics + GEH
-#   (no ~45 s process watchdog?  just: --mode all --device cpu)
-
-# 4. TEST one sample — predicted vs true OD, optional sumo-gui for BASE and PRED
-python -m src.odpipe.infer --max-trips                              # busiest test sample
+# 3. TEST one sample — predicted vs true OD, optional sumo-gui for BASE and PRED
+python -m src.odpipe.infer --max-trips                                # busiest test sample
 python -m src.odpipe.infer --index 42 --sumo-gui --which both --meso  # animate base + predicted
-python -m src.odpipe.infer --regime gridlock --sumo-gui --which pred --meso
 
-# 5. VISUALIZE (6 figures → data_od/viz/)
+# 4. VISUALIZE (6 figures → data_od/viz/)
 python -m src.odpipe.visualize
 ```
 
-## What each step produces
-| step | output |
+## What each command produces
+| command | output |
 |---|---|
-| `taz` | `sumo/taz_od.xml` (+ reports zone count & sizes) |
-| `graph` | `data_od/graph.pkl` (edge line-graph + zone map) |
-| `generate` | `data_od/samples/*.pkl` + `data_od/index.json` (stratified split) |
-| `build_packs` | `data_od/pack_{train,val,test}.pt` + `norm.json` |
-| `train_eval` | `data_od/best.pt`, `metrics.json`, `test_predictions.npz`, `history.json` |
+| `dataset` | `sumo/taz_od.xml` · `data_od/graph.pkl` · `data_od/samples/*.pkl` · `index.json` · `pack_{train,val,test}.pt` · `norm.json` |
+| `train` | `data_od/best.pt` · `metrics.json` · `test_predictions.npz` · `history.json` |
 | `infer` | `data_od/infer/sample_<idx>.png` (+ `sumo_<idx>_{base,pred}/` for the GUI) |
 | `visualize` | `data_od/viz/` — zones_map, training_curve, marginals/cell scatter, od_examples, metrics_summary |
+
+Each `.pkl` sample holds `{idx, od[Z,Z], seed, x_dyn[N,4], turn[L], tier, tod, total_demand}`
+— the OD target plus per-edge `[flow, speed, density, traveltime]` and junction turn counts.
 
 ## Change the resolution or demand
 Everything follows [configs/odpipe.yaml](configs/odpipe.yaml):

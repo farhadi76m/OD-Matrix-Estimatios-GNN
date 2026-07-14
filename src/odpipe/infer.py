@@ -30,7 +30,7 @@ from src.config import load_yaml, resolve, set_seed
 from src.models.gnn import build_model
 from src.od_reconstruct import furness, zone_distance
 from src.odpipe import CFG
-from src.odpipe.build_packs import _features
+from src.odpipe.dataset import features
 from src.odpipe.graph import load_graph
 from src.train import destd_marginals
 
@@ -89,7 +89,7 @@ def main():
 
     row = pick(cfg, args)
     s = pickle.load(open(resolve(cfg["paths"]["data_dir"]) / row["file"], "rb"))
-    x, turn = _features(s, graph["static"].astype(np.float32), src, dst, graph["n_nodes"])
+    x, turn = features(s, graph["static"].astype(np.float32), src, dst, graph["n_nodes"])
     data = Data(x=torch.tensor((np.log1p(np.clip(x, 0, None)) - xm) / xs, dtype=torch.float32),
                 edge_index=torch.as_tensor(ei, dtype=torch.long),
                 edge_weight=torch.tensor(np.log1p(np.clip(turn, 0, None)), dtype=torch.float32),

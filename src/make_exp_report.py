@@ -257,12 +257,8 @@ auto‑selected with CPU fallback.
 conda activate traffic
 
 # general pipeline (any zone count / demand range) — see README_odpipe.md
-python -m src.odpipe.taz                     # TAZ at configs/odpipe.yaml -> taz.width
-python -m src.odpipe.graph
-python -m src.odpipe.generate --workers 8    # mesoscopic, resumable
-python -m src.odpipe.build_packs
-python -m src.odpipe.train_eval --mode train --device cuda --max-seconds 25
-python -m src.odpipe.train_eval --mode eval  --device cpu
+python -m src.odpipe.dataset                 # TAZ -> graph -> OD samples (.pkl) -> packs
+python -m src.odpipe.train                   # train + evaluate
 python -m src.odpipe.infer --max-trips --sumo-gui --which both --meso
 python -m src.odpipe.visualize
 

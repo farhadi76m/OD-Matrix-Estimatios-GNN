@@ -9,9 +9,9 @@ is resumable (--max-seconds). Eval reports marginal corr, reconstructed-OD cell
 metrics per regime, the gravity ceiling, and GEH on re-simulated link flows.
 
 Run:
-    python -m src.odpipe.train_eval --mode train --max-seconds 25   # resumable chunks
-    python -m src.odpipe.train_eval --mode eval
-    python -m src.odpipe.train_eval --mode all --device cpu         # both (no watchdog)
+    python -m src.odpipe.train                                 # train + evaluate
+    python -m src.odpipe.train --mode train --max-seconds 25   # resumable chunks (GPU watchdog)
+    python -m src.odpipe.train --mode eval                     # metrics only
 """
 
 from __future__ import annotations
